@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using LanOra.Networking;
+using LanOra.Theme;
 
 namespace LanOra.Forms
 {
     /// <summary>
     /// Viewer mode window. Automatically discovers hosts via UDP broadcast,
-    /// shows them in a list, and connects using the PIN entered by the user.
-    /// Displays a live performance overlay (FPS / KB/s) while streaming.
+    /// shows them in a list, and connects using the 6-digit PIN entered by the
+    /// user. Displays a live performance overlay (FPS / KB/s) while streaming.
     /// </summary>
     public partial class ViewerForm : Form
     {
@@ -20,13 +21,50 @@ namespace LanOra.Forms
         // Performance overlay timer (updates the overlay label every second)
         private readonly Timer _perfTimer = new Timer { Interval = 1000 };
 
+        // Title-bar drag support
+        private Point _dragOffset;
+
         public ViewerForm()
         {
             InitializeComponent();
+            DoubleBuffered = true;
             WireEvents();
+            WirePinBoxes();
             _scanner.Start();
             _perfTimer.Tick += (s, e) => UpdatePerfOverlay();
         }
+
+        // ------------------------------------------------------------------ //
+        // Title-bar drag                                                      //
+        // ------------------------------------------------------------------ //
+
+        private void TitleBar_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+                _dragOffset = e.Location;
+        }
+
+        private void TitleBar_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+                Location = new Point(
+                    Location.X + e.X - _dragOffset.X,
+                    Location.Y + e.Y - _dragOffset.Y);
+        }
+
+        // ------------------------------------------------------------------ //
+        // Title-bar buttons                                                   //
+        // ------------------------------------------------------------------ //
+
+        private void btnClose_Click(object sender, EventArgs e)
+        {
+            _perfTimer.Stop();
+            _client.Disconnect();
+            _scanner.Stop();
+            Close();
+        }
+
+        private void btnMinimize_Click(object sender, EventArgs e) => WindowState = FormWindowState.Minimized;
 
         // ------------------------------------------------------------------ //
         // Event wiring                                                        //
@@ -42,6 +80,73 @@ namespace LanOra.Forms
             _scanner.HostsUpdated  += () => SafeInvoke(RefreshHostList);
         }
 
+        /// <summary>
+        /// Wires keyboard handling on each PIN box so digits auto-advance the
+        /// cursor and the backspace key moves focus backwards.
+        /// </summary>
+        private void WirePinBoxes()
+        {
+            TextBox[] boxes = PinBoxes;
+            for (int i = 0; i < boxes.Length; i++)
+            {
+                int idx = i; // capture for lambda
+                boxes[i].KeyPress += (s, e) =>
+                {
+                    // Allow only digits
+                    if (!char.IsDigit(e.KeyChar) && e.KeyChar != (char)Keys.Back)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    // Advance focus after a digit is entered
+                    if (char.IsDigit(e.KeyChar) && idx < boxes.Length - 1)
+                        BeginInvoke((Action)(() => boxes[idx + 1].Focus()));
+                };
+                boxes[i].KeyDown += (s, e) =>
+                {
+                    // Move focus backward on backspace if box is empty
+                    if (e.KeyCode == Keys.Back &&
+                        string.IsNullOrEmpty(boxes[idx].Text) &&
+                        idx > 0)
+                    {
+                        boxes[idx - 1].Focus();
+                        boxes[idx - 1].Clear();
+                        e.SuppressKeyPress = true;
+                    }
+                };
+            }
+        }
+
+        // ------------------------------------------------------------------ //
+        // PIN helper                                                          //
+        // ------------------------------------------------------------------ //
+
+        private TextBox[] PinBoxes =>
+            new[] { txtPin1, txtPin2, txtPin3, txtPin4, txtPin5, txtPin6 };
+
+        /// <summary>Returns the concatenated digits from all 6 PIN boxes.</summary>
+        private string GetPin()
+        {
+            var sb = new System.Text.StringBuilder(6);
+            foreach (TextBox tb in PinBoxes)
+                sb.Append(tb.Text);
+            return sb.ToString();
+        }
+
+        /// <summary>Clears all 6 PIN boxes.</summary>
+        private void ClearPin()
+        {
+            foreach (TextBox tb in PinBoxes)
+                tb.Clear();
+        }
+
+        /// <summary>Enables or disables all 6 PIN boxes.</summary>
+        private void SetPinBoxesEnabled(bool enabled)
+        {
+            foreach (TextBox tb in PinBoxes)
+                tb.Enabled = enabled;
+        }
+
         // ------------------------------------------------------------------ //
         // Host list                                                           //
         // ------------------------------------------------------------------ //
@@ -50,14 +155,12 @@ namespace LanOra.Forms
         {
             IReadOnlyList<HostInfo> hosts = _scanner.Hosts;
 
-            // Remember current selection (by display text)
             string selected = lstHosts.SelectedItem?.ToString();
 
             lstHosts.Items.Clear();
             foreach (HostInfo h in hosts)
                 lstHosts.Items.Add(h);
 
-            // Restore selection if still present
             if (selected != null)
                 for (int i = 0; i < lstHosts.Items.Count; i++)
                     if (lstHosts.Items[i].ToString() == selected)
@@ -65,6 +168,14 @@ namespace LanOra.Forms
         }
 
         private void btnRefresh_Click(object sender, EventArgs e) => RefreshHostList();
+
+        private void lstHosts_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (lstHosts.SelectedItem is HostInfo host)
+                lblPinCaption.Text = string.Format("Enter PIN for {0}:", host.HostName);
+            else
+                lblPinCaption.Text = "Enter PIN:";
+        }
 
         // ------------------------------------------------------------------ //
         // Connect / Disconnect                                                //
@@ -79,19 +190,22 @@ namespace LanOra.Forms
                 return;
             }
 
-            string pin = txtPin.Text.Trim();
-            if (string.IsNullOrEmpty(pin))
+            string pin = GetPin();
+            if (pin.Length < 6)
             {
-                MessageBox.Show("Please enter the PIN shown on the host machine.", "Validation",
-                                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Please enter the full 6-digit PIN shown on the host machine.",
+                                "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             btnConnect.Enabled    = false;
             btnDisconnect.Enabled = true;
             lstHosts.Enabled      = false;
-            txtPin.Enabled        = false;
+            SetPinBoxesEnabled(false);
             btnRefresh.Enabled    = false;
+
+            lblStatusDot.ForeColor = AppTheme.WarningYellow;
+            lblStatusBar.Text      = "Viewer Mode: Connecting  |  " + AppTheme.Developer;
 
             _client.Pin = pin;
             _client.Connect(host.IpAddress);
@@ -130,12 +244,17 @@ namespace LanOra.Forms
             btnConnect.Enabled    = true;
             btnDisconnect.Enabled = false;
             lstHosts.Enabled      = true;
-            txtPin.Enabled        = true;
+            SetPinBoxesEnabled(true);
             btnRefresh.Enabled    = true;
-            lblStatusDot.ForeColor = Color.Red;
+
+            lblStatusDot.ForeColor = AppTheme.ErrorRed;
+            lblStatusBar.Text      = "Viewer Mode: Discovery  |  " + AppTheme.Developer;
+
             picScreen.Image        = null;
             lblPerfOverlay.Text    = string.Empty;
             lblPerfOverlay.Visible = false;
+
+            ClearPin();
 
             Bitmap old = _currentFrame;
             _currentFrame = null;
@@ -151,7 +270,7 @@ namespace LanOra.Forms
             double fps = _client.Performance.Fps;
             double kbs = _client.Performance.KbPerSecond;
 
-            lblPerfOverlay.Text    = string.Format("{0:F1} fps  {1:F0} KB/s", fps, kbs);
+            lblPerfOverlay.Text    = string.Format("FPS: {0:F1}  |  {1:F0} KB/s", fps, kbs);
             lblPerfOverlay.Visible = true;
         }
 
@@ -161,10 +280,17 @@ namespace LanOra.Forms
 
         private void UpdateStatus(string message)
         {
-            lblStatus.Text = "Status: " + message;
-            lblStatusDot.ForeColor = message.StartsWith("Connected", StringComparison.OrdinalIgnoreCase)
-                                     ? Color.LimeGreen
-                                     : Color.Orange;
+            if (message.StartsWith("Connected", StringComparison.OrdinalIgnoreCase))
+            {
+                lblStatusDot.ForeColor = AppTheme.SuccessGreen;
+                lblStatusBar.Text      = "Viewer Mode: Connected  |  " + AppTheme.Developer;
+            }
+            else if (message.StartsWith("Connecting", StringComparison.OrdinalIgnoreCase))
+            {
+                lblStatusDot.ForeColor = AppTheme.WarningYellow;
+                lblStatusBar.Text      = "Viewer Mode: Connecting  |  " + AppTheme.Developer;
+            }
+            // Other messages (disconnected, errors) handled by OnDisconnected / ShowError
         }
 
         private void ShowError(string message) =>
