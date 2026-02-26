@@ -3,12 +3,14 @@ using System.Drawing;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
+using LanOra.Monitoring;
 
 namespace LanOra.Networking
 {
     /// <summary>
     /// Connects to a running <see cref="ScreenServer"/>, authenticates via PIN,
     /// and continuously reads JPEG frames surfaced through <see cref="FrameReceived"/>.
+    /// Feeds <see cref="Performance"/> with per-frame byte counts for live stats.
     /// </summary>
     internal class ScreenClient
     {
@@ -32,6 +34,11 @@ namespace LanOra.Networking
         public event Action<string> StatusChanged;
         public event Action         Disconnected;
         public event Action<string> ErrorOccurred;
+
+        /// <summary>
+        /// Live performance statistics for the current viewing session.
+        /// </summary>
+        public PerformanceTracker Performance { get; } = new PerformanceTracker();
 
         private const int MaxFrameSizeBytes = 4 * 1024 * 1024; // 4 MB sanity check
 
@@ -91,6 +98,8 @@ namespace LanOra.Networking
                 }
                 _client.EndConnect(ar);
 
+                Performance.Reset();
+
                 using (BufferedStream buffered = new BufferedStream(_client.GetStream(), 65536))
                 using (BinaryWriter   writer   = new BinaryWriter(buffered))
                 using (BinaryReader   reader   = new BinaryReader(buffered))
@@ -122,6 +131,9 @@ namespace LanOra.Networking
                         byte[] frameData = ReadExactBytes(reader, length);
                         if (frameData == null) break;
 
+                        // Record performance stats
+                        Performance.RecordFrame(frameData.Length);
+
                         Bitmap bmp = DecodeBitmap(frameData);
                         if (bmp != null)
                             FrameReceived?.Invoke(bmp);
@@ -150,6 +162,7 @@ namespace LanOra.Networking
             {
                 _running = false;
                 try { _client?.Close(); } catch { /* ignore */ }
+                Performance.Reset();
                 Disconnected?.Invoke();
                 RaiseStatus("Disconnected.");
             }
@@ -183,3 +196,4 @@ namespace LanOra.Networking
         private void RaiseError(string msg)   => ErrorOccurred?.Invoke(msg);
     }
 }
+

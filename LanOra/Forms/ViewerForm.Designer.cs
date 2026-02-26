@@ -26,6 +26,7 @@ namespace LanOra.Forms
             this.btnConnect    = new System.Windows.Forms.Button();
             this.btnDisconnect = new System.Windows.Forms.Button();
             this.picScreen     = new System.Windows.Forms.PictureBox();
+            this.lblPerfOverlay = new System.Windows.Forms.Label();
             this.pnlStatusBar  = new System.Windows.Forms.Panel();
             this.lblStatusDot  = new System.Windows.Forms.Label();
             this.lblStatus     = new System.Windows.Forms.Label();
@@ -155,11 +156,28 @@ namespace LanOra.Forms
             this.picScreen.Dock      = System.Windows.Forms.DockStyle.Fill;
             this.picScreen.SizeMode  = System.Windows.Forms.PictureBoxSizeMode.Zoom;
 
+            // ---- lblPerfOverlay ----
+            // Positioned in the top-right corner of the screen area (above picScreen).
+            // Anchor keeps it in the corner when the form is resized.
+            this.lblPerfOverlay.AutoSize  = false;
+            this.lblPerfOverlay.Anchor    = System.Windows.Forms.AnchorStyles.Top
+                                          | System.Windows.Forms.AnchorStyles.Right;
+            this.lblPerfOverlay.BackColor = System.Drawing.Color.FromArgb(160, 0, 0, 0);
+            this.lblPerfOverlay.Font      = new System.Drawing.Font("Courier New", 9F,
+                                               System.Drawing.FontStyle.Bold);
+            this.lblPerfOverlay.ForeColor = System.Drawing.Color.LimeGreen;
+            this.lblPerfOverlay.Location  = new System.Drawing.Point(810, 60);
+            this.lblPerfOverlay.Size      = new System.Drawing.Size(240, 22);
+            this.lblPerfOverlay.Text      = string.Empty;
+            this.lblPerfOverlay.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.lblPerfOverlay.Visible   = false;
+
             // ---- ViewerForm ----
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode       = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor           = System.Drawing.Color.Black;
             this.ClientSize          = new System.Drawing.Size(1060, 640);
+            this.Controls.Add(this.lblPerfOverlay);
             this.Controls.Add(this.picScreen);
             this.Controls.Add(this.pnlLeft);
             this.Controls.Add(this.pnlStatusBar);
@@ -192,8 +210,10 @@ namespace LanOra.Forms
         private System.Windows.Forms.Button     btnConnect;
         private System.Windows.Forms.Button     btnDisconnect;
         private System.Windows.Forms.PictureBox picScreen;
+        private System.Windows.Forms.Label      lblPerfOverlay;
         private System.Windows.Forms.Panel      pnlStatusBar;
         private System.Windows.Forms.Label      lblStatusDot;
         private System.Windows.Forms.Label      lblStatus;
     }
 }
+
