@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Windows.Forms;
 using LanOra.Networking;
+using LanOra.Security;
 using LanOra.Theme;
 
 namespace LanOra.Forms
@@ -12,12 +13,25 @@ namespace LanOra.Forms
     /// Host mode window. Displays the machine IP, a randomly generated 6-digit
     /// PIN, and Start / Stop controls. When started, the app broadcasts its
     /// presence via UDP so viewers can discover it automatically.
+    ///
+    /// Secure remote control:
+    ///   – "Allow Remote Control" checkbox enables the feature.
+    ///   – When a viewer requests control a modal dialog gives the host 15 s
+    ///     to Allow or Deny.
+    ///   – A red banner is shown at the top while control is active.
+    ///   – A small indicator flashes on every received input event.
+    ///   – Control is immediately revoked when the checkbox is unchecked.
     /// </summary>
     public partial class HostForm : Form
     {
-        private readonly ScreenServer _server = new ScreenServer();
-        private readonly HostBeacon   _beacon = new HostBeacon();
-        private readonly string       _pin;
+        private readonly ScreenServer   _server  = new ScreenServer();
+        private readonly HostBeacon     _beacon  = new HostBeacon();
+        private readonly ControlManager _control = new ControlManager();
+        private readonly SessionLogger  _logger  = new SessionLogger();
+        private readonly string         _pin;
+
+        // Timer used to clear the activity-flash indicator after 200 ms
+        private readonly Timer _flashTimer = new Timer { Interval = 200 };
 
         // Title-bar drag
         private Point _dragOffset;
@@ -30,10 +44,21 @@ namespace LanOra.Forms
             InitializeComponent();
             DoubleBuffered = true;
             _pin = GeneratePin();
+
+            // Wire ControlManager and SessionLogger into the server
+            _server.ControlManager = _control;
+            _server.Logger         = _logger;
+
             WireEvents();
-            lblIpValue.Text = GetLocalIpAddress();
-            lblPort.Text    = "Port: " + ScreenServer.Port;
+            lblIpValue.Text  = GetLocalIpAddress();
+            lblPort.Text     = "Port: " + ScreenServer.Port;
             lblPinValue.Text = FormatPin(_pin);
+
+            _flashTimer.Tick += (s, e) =>
+            {
+                _flashTimer.Stop();
+                lblActivityFlash.Text = string.Empty;
+            };
         }
 
         // ------------------------------------------------------------------ //
@@ -59,10 +84,13 @@ namespace LanOra.Forms
 
         private void WireEvents()
         {
-            _server.StatusChanged      += msg => SafeInvoke(() => UpdateStatusBar(msg));
-            _server.ClientConnected    += ip  => SafeInvoke(() => OnClientConnected(ip));
-            _server.ClientDisconnected +=       () => SafeInvoke(OnClientDisconnected);
-            _server.ErrorOccurred      += msg => SafeInvoke(() => ShowError(msg));
+            _server.StatusChanged         += msg  => SafeInvoke(() => UpdateStatusBar(msg));
+            _server.ClientConnected       += ip   => SafeInvoke(() => OnClientConnected(ip));
+            _server.ClientDisconnected    +=        () => SafeInvoke(OnClientDisconnected);
+            _server.ErrorOccurred         += msg  => SafeInvoke(() => ShowError(msg));
+            _server.ControlRequestReceived += info => SafeInvoke(() => OnControlRequestReceived(info));
+            _server.ControlReleased        +=        () => SafeInvoke(OnControlReleased);
+            _server.InputActivityFlash     +=        () => SafeInvoke(FlashActivityIndicator);
         }
 
         // ------------------------------------------------------------------ //
@@ -105,9 +133,8 @@ namespace LanOra.Forms
                 btnStart.Visible = false;
                 btnStop.Visible  = true;
 
-                // Update status indicator
                 lblStatusDot.ForeColor = AppTheme.SuccessGreen;
-                lblIpValue2.Text = "Hosting\u2026";
+                lblIpValue2.Text       = "Hosting\u2026";
                 lblViewerCount.Text    = "Connected Viewers: 0";
                 lblViewerCount.Visible = true;
                 _viewerCount = 0;
@@ -122,15 +149,17 @@ namespace LanOra.Forms
 
         private void btnStop_Click(object sender, EventArgs e)
         {
+            RevokeControlIfActive();
             _server.Stop();
             _beacon.Stop();
 
             btnStop.Visible  = false;
             btnStart.Visible = true;
 
-            lblStatusDot.ForeColor = AppTheme.ErrorRed;
-            lblIpValue2.Text       = "Not Hosting";
-            lblViewerCount.Visible = false;
+            lblStatusDot.ForeColor   = AppTheme.ErrorRed;
+            lblIpValue2.Text         = "Not Hosting";
+            lblViewerCount.Visible   = false;
+            pnlControlBanner.Visible = false;
             _viewerCount = 0;
 
             lblStatusBar.Text = "Host Mode: Idle  |  " + AppTheme.Developer;
@@ -140,6 +169,25 @@ namespace LanOra.Forms
         {
             _server.Stop();
             _beacon.Stop();
+            _flashTimer.Stop();
+        }
+
+        /// <summary>
+        /// Fires when the "Allow Remote Control" checkbox changes state.
+        /// Immediately revokes active control if unchecked.
+        /// </summary>
+        private void chkAllowControl_CheckedChanged(object sender, EventArgs e)
+        {
+            bool allow = chkAllowControl.Checked;
+            _control.SetAllowEnabled(allow);
+
+            if (!allow && pnlControlBanner.Visible)
+            {
+                // Revoke active control and notify viewer
+                _logger.Log("Control Revoked – host unchecked Allow Remote Control");
+                _server.SendControlRevoke();
+                HideControlBanner();
+            }
         }
 
         // ------------------------------------------------------------------ //
@@ -159,6 +207,88 @@ namespace LanOra.Forms
             lblViewerCount.Text = string.Format("Connected Viewers: {0}", _viewerCount);
             if (_viewerCount == 0)
                 lblStatusDot.ForeColor = AppTheme.SuccessGreen; // still hosting
+
+            // If control was active, the connection drop automatically cleared
+            // ControlManager state; just hide the banner.
+            HideControlBanner();
+        }
+
+        /// <summary>
+        /// Viewer is requesting remote control.  Show the permission dialog.
+        /// info format: "MachineName|IP"
+        /// </summary>
+        private void OnControlRequestReceived(string info)
+        {
+            string machineName = info;
+            string ip          = string.Empty;
+
+            int sep = info.IndexOf('|');
+            if (sep >= 0)
+            {
+                machineName = info.Substring(0, sep);
+                ip          = info.Substring(sep + 1);
+            }
+
+            using (var dlg = new ControlRequestDialog(machineName, ip))
+            {
+                dlg.ShowDialog(this);
+                bool approved = dlg.Approved;
+
+                _server.SendControlResponse(approved);
+
+                if (approved)
+                {
+                    _control.ApproveControl();
+                    _logger.Log("Control Approved");
+                    ShowControlBanner();
+                }
+                else
+                {
+                    _logger.Log("Control Denied");
+                }
+            }
+        }
+
+        /// <summary>Viewer sent ControlRelease (viewer released control).</summary>
+        private void OnControlReleased()
+        {
+            _control.RevokeControl();
+            HideControlBanner();
+        }
+
+        /// <summary>Flashes the activity indicator for 200 ms.</summary>
+        private void FlashActivityIndicator()
+        {
+            lblActivityFlash.Text = "\u25CF INPUT";
+            _flashTimer.Stop();
+            _flashTimer.Start();
+        }
+
+        // ------------------------------------------------------------------ //
+        // Control banner helpers                                              //
+        // ------------------------------------------------------------------ //
+
+        private void ShowControlBanner()
+        {
+            pnlControlBanner.Visible = true;
+        }
+
+        private void HideControlBanner()
+        {
+            pnlControlBanner.Visible = false;
+            lblActivityFlash.Text    = string.Empty;
+            _flashTimer.Stop();
+        }
+
+        private void RevokeControlIfActive()
+        {
+            if (_control.IsControlActive || pnlControlBanner.Visible)
+            {
+                _control.RevokeControl();
+                _server.SendControlRevoke();
+                _logger.Log("Control Revoked");
+                HideControlBanner();
+            }
         }
 
         // ------------------------------------------------------------------ //

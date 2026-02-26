@@ -21,7 +21,11 @@ namespace LanOra.Forms
             this.lblAppName     = new System.Windows.Forms.Label();
             this.btnClose       = new System.Windows.Forms.Button();
             this.btnMinimize    = new System.Windows.Forms.Button();
+            this.pnlControlBanner = new System.Windows.Forms.Panel();
+            this.lblControlBanner = new System.Windows.Forms.Label();
+            this.lblActivityFlash = new System.Windows.Forms.Label();
             this.pnlContent     = new System.Windows.Forms.Panel();
+            this.chkAllowControl = new System.Windows.Forms.CheckBox();
             this.lblNetInfoHdr  = new System.Windows.Forms.Label();
             this.pnlNetInfo     = new System.Windows.Forms.Panel();
             this.lblIpCaption   = new System.Windows.Forms.Label();
@@ -42,6 +46,7 @@ namespace LanOra.Forms
             this.lblStatusBar   = new System.Windows.Forms.Label();
 
             this.pnlTitleBar.SuspendLayout();
+            this.pnlControlBanner.SuspendLayout();
             this.pnlContent.SuspendLayout();
             this.pnlNetInfo.SuspendLayout();
             this.pnlAuthSection.SuspendLayout();
@@ -95,6 +100,34 @@ namespace LanOra.Forms
             this.btnMinimize.Click    += new System.EventHandler(this.btnMinimize_Click);
 
             // ----------------------------------------------------------------
+            // pnlControlBanner – Red strip shown when control is active
+            // ----------------------------------------------------------------
+            this.pnlControlBanner.BackColor = AppTheme.ErrorRed;
+            this.pnlControlBanner.Dock      = System.Windows.Forms.DockStyle.Top;
+            this.pnlControlBanner.Height    = 30;
+            this.pnlControlBanner.Visible   = false;
+            this.pnlControlBanner.Controls.Add(this.lblActivityFlash);
+            this.pnlControlBanner.Controls.Add(this.lblControlBanner);
+
+            this.lblControlBanner.AutoSize  = false;
+            this.lblControlBanner.Dock      = System.Windows.Forms.DockStyle.Fill;
+            this.lblControlBanner.Font      = new System.Drawing.Font(AppTheme.FontFamily, 9F, System.Drawing.FontStyle.Bold);
+            this.lblControlBanner.ForeColor = AppTheme.TextPrimary;
+            this.lblControlBanner.Padding   = new System.Windows.Forms.Padding(8, 0, 0, 0);
+            this.lblControlBanner.Text      = "\u26A0  REMOTE CONTROL ACTIVE";
+            this.lblControlBanner.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+
+            this.lblActivityFlash.AutoSize  = false;
+            this.lblActivityFlash.Anchor    = System.Windows.Forms.AnchorStyles.Top
+                                            | System.Windows.Forms.AnchorStyles.Right;
+            this.lblActivityFlash.Font      = new System.Drawing.Font(AppTheme.FontFamily, 8.5F, System.Drawing.FontStyle.Bold);
+            this.lblActivityFlash.ForeColor = AppTheme.TextPrimary;
+            this.lblActivityFlash.Location  = new System.Drawing.Point(360, 0);
+            this.lblActivityFlash.Size      = new System.Drawing.Size(120, 30);
+            this.lblActivityFlash.Text      = string.Empty;
+            this.lblActivityFlash.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+
+            // ----------------------------------------------------------------
             // pnlStatusBar
             // ----------------------------------------------------------------
             this.pnlStatusBar.BackColor = AppTheme.StatusBar;
@@ -119,6 +152,7 @@ namespace LanOra.Forms
             this.pnlContent.Controls.Add(this.lblViewerCount);
             this.pnlContent.Controls.Add(this.btnStop);
             this.pnlContent.Controls.Add(this.btnStart);
+            this.pnlContent.Controls.Add(this.chkAllowControl);
             this.pnlContent.Controls.Add(this.pnlAuthSection);
             this.pnlContent.Controls.Add(this.lblAuthHdr);
             this.pnlContent.Controls.Add(this.pnlNetInfo);
@@ -225,6 +259,17 @@ namespace LanOra.Forms
             this.lblPinNote.Text      = "Share this PIN with the viewer to allow connection.";
             this.lblPinNote.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
 
+            // ---- chkAllowControl ----
+            this.chkAllowControl.AutoSize  = false;
+            this.chkAllowControl.Font      = new System.Drawing.Font(AppTheme.FontFamily, 9F);
+            this.chkAllowControl.ForeColor = AppTheme.TextPrimary;
+            this.chkAllowControl.Location  = new System.Drawing.Point(20, 322);
+            this.chkAllowControl.Size      = new System.Drawing.Size(440, 24);
+            this.chkAllowControl.Text      = "\u2713  Allow Remote Control";
+            this.chkAllowControl.Checked   = false;
+            this.chkAllowControl.Cursor    = System.Windows.Forms.Cursors.Hand;
+            this.chkAllowControl.CheckedChanged += new System.EventHandler(this.chkAllowControl_CheckedChanged);
+
             // ---- btnStart ----
             this.btnStart.BackColor               = AppTheme.AccentBlue;
             this.btnStart.FlatStyle               = System.Windows.Forms.FlatStyle.Flat;
@@ -232,7 +277,7 @@ namespace LanOra.Forms
             this.btnStart.FlatAppearance.MouseOverBackColor = AppTheme.AccentBlueDark;
             this.btnStart.Font      = new System.Drawing.Font(AppTheme.FontFamily, 12F, System.Drawing.FontStyle.Bold);
             this.btnStart.ForeColor = AppTheme.TextPrimary;
-            this.btnStart.Location  = new System.Drawing.Point(20, 328);
+            this.btnStart.Location  = new System.Drawing.Point(20, 356);
             this.btnStart.Size      = new System.Drawing.Size(440, 44);
             this.btnStart.Text      = "Start Hosting";
             this.btnStart.Cursor    = System.Windows.Forms.Cursors.Hand;
@@ -246,7 +291,7 @@ namespace LanOra.Forms
             this.btnStop.FlatAppearance.MouseOverBackColor = AppTheme.ErrorRedDark;
             this.btnStop.Font      = new System.Drawing.Font(AppTheme.FontFamily, 12F, System.Drawing.FontStyle.Bold);
             this.btnStop.ForeColor = AppTheme.TextPrimary;
-            this.btnStop.Location  = new System.Drawing.Point(20, 328);
+            this.btnStop.Location  = new System.Drawing.Point(20, 356);
             this.btnStop.Size      = new System.Drawing.Size(440, 44);
             this.btnStop.Text      = "Stop Hosting";
             this.btnStop.Cursor    = System.Windows.Forms.Cursors.Hand;
@@ -257,7 +302,7 @@ namespace LanOra.Forms
             this.lblViewerCount.AutoSize  = false;
             this.lblViewerCount.Font      = new System.Drawing.Font(AppTheme.FontFamily, 9F);
             this.lblViewerCount.ForeColor = AppTheme.TextSecondary;
-            this.lblViewerCount.Location  = new System.Drawing.Point(20, 382);
+            this.lblViewerCount.Location  = new System.Drawing.Point(20, 410);
             this.lblViewerCount.Size      = new System.Drawing.Size(440, 22);
             this.lblViewerCount.Text      = "Connected Viewers: 0";
             this.lblViewerCount.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
@@ -269,8 +314,9 @@ namespace LanOra.Forms
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode       = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor           = AppTheme.Background;
-            this.ClientSize          = new System.Drawing.Size(480, 468);
+            this.ClientSize          = new System.Drawing.Size(480, 498);
             this.Controls.Add(this.pnlContent);
+            this.Controls.Add(this.pnlControlBanner);
             this.Controls.Add(this.pnlStatusBar);
             this.Controls.Add(this.pnlTitleBar);
             this.FormBorderStyle     = System.Windows.Forms.FormBorderStyle.None;
@@ -281,6 +327,7 @@ namespace LanOra.Forms
             this.FormClosing        += new System.Windows.Forms.FormClosingEventHandler(this.HostForm_FormClosing);
 
             this.pnlTitleBar.ResumeLayout(false);
+            this.pnlControlBanner.ResumeLayout(false);
             this.pnlContent.ResumeLayout(false);
             this.pnlNetInfo.ResumeLayout(false);
             this.pnlAuthSection.ResumeLayout(false);
@@ -290,28 +337,32 @@ namespace LanOra.Forms
 
         #endregion
 
-        private System.Windows.Forms.Panel  pnlTitleBar;
-        private System.Windows.Forms.Label  lblAppName;
-        private System.Windows.Forms.Button btnClose;
-        private System.Windows.Forms.Button btnMinimize;
-        private System.Windows.Forms.Panel  pnlContent;
-        private System.Windows.Forms.Label  lblNetInfoHdr;
-        private System.Windows.Forms.Panel  pnlNetInfo;
-        private System.Windows.Forms.Label  lblIpCaption;
-        private System.Windows.Forms.Label  lblIpValue;
-        private System.Windows.Forms.Label  lblStatusCaption;
-        private System.Windows.Forms.Label  lblStatusDot;
-        private System.Windows.Forms.Label  lblIpValue2;
-        private System.Windows.Forms.Label  lblPort;
-        private System.Windows.Forms.Label  lblAuthHdr;
-        private System.Windows.Forms.Panel  pnlAuthSection;
-        private System.Windows.Forms.Label  lblPinCaption;
-        private System.Windows.Forms.Label  lblPinValue;
-        private System.Windows.Forms.Label  lblPinNote;
-        private System.Windows.Forms.Button btnStart;
-        private System.Windows.Forms.Button btnStop;
-        private System.Windows.Forms.Label  lblViewerCount;
-        private System.Windows.Forms.Panel  pnlStatusBar;
-        private System.Windows.Forms.Label  lblStatusBar;
+        private System.Windows.Forms.Panel    pnlTitleBar;
+        private System.Windows.Forms.Label    lblAppName;
+        private System.Windows.Forms.Button   btnClose;
+        private System.Windows.Forms.Button   btnMinimize;
+        private System.Windows.Forms.Panel    pnlControlBanner;
+        private System.Windows.Forms.Label    lblControlBanner;
+        private System.Windows.Forms.Label    lblActivityFlash;
+        private System.Windows.Forms.Panel    pnlContent;
+        private System.Windows.Forms.CheckBox chkAllowControl;
+        private System.Windows.Forms.Label    lblNetInfoHdr;
+        private System.Windows.Forms.Panel    pnlNetInfo;
+        private System.Windows.Forms.Label    lblIpCaption;
+        private System.Windows.Forms.Label    lblIpValue;
+        private System.Windows.Forms.Label    lblStatusCaption;
+        private System.Windows.Forms.Label    lblStatusDot;
+        private System.Windows.Forms.Label    lblIpValue2;
+        private System.Windows.Forms.Label    lblPort;
+        private System.Windows.Forms.Label    lblAuthHdr;
+        private System.Windows.Forms.Panel    pnlAuthSection;
+        private System.Windows.Forms.Label    lblPinCaption;
+        private System.Windows.Forms.Label    lblPinValue;
+        private System.Windows.Forms.Label    lblPinNote;
+        private System.Windows.Forms.Button   btnStart;
+        private System.Windows.Forms.Button   btnStop;
+        private System.Windows.Forms.Label    lblViewerCount;
+        private System.Windows.Forms.Panel    pnlStatusBar;
+        private System.Windows.Forms.Label    lblStatusBar;
     }
 }

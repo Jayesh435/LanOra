@@ -37,8 +37,10 @@ namespace LanOra.Forms
             this.txtPin6        = new System.Windows.Forms.TextBox();
             this.btnConnect     = new System.Windows.Forms.Button();
             this.btnDisconnect  = new System.Windows.Forms.Button();
+            this.btnRequestControl = new System.Windows.Forms.Button();
             this.picScreen      = new System.Windows.Forms.PictureBox();
             this.lblPerfOverlay = new System.Windows.Forms.Label();
+            this.lblControlBadge = new System.Windows.Forms.Label();
             this.pnlStatusBar   = new System.Windows.Forms.Panel();
             this.lblStatusDot   = new System.Windows.Forms.Label();
             this.lblStatusBar   = new System.Windows.Forms.Label();
@@ -50,7 +52,6 @@ namespace LanOra.Forms
             this.pnlStatusBar.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)this.picScreen).BeginInit();
             this.SuspendLayout();
-
             // ----------------------------------------------------------------
             // pnlTitleBar
             // ----------------------------------------------------------------
@@ -166,7 +167,8 @@ namespace LanOra.Forms
             // ---- pnlConnectSect ----
             this.pnlConnectSect.BackColor = AppTheme.Panel;
             this.pnlConnectSect.Location  = new System.Drawing.Point(0, 236);
-            this.pnlConnectSect.Size      = new System.Drawing.Size(270, 310);
+            this.pnlConnectSect.Size      = new System.Drawing.Size(270, 360);
+            this.pnlConnectSect.Controls.Add(this.btnRequestControl);
             this.pnlConnectSect.Controls.Add(this.btnDisconnect);
             this.pnlConnectSect.Controls.Add(this.btnConnect);
             this.pnlConnectSect.Controls.Add(this.pnlPinBoxes);
@@ -238,6 +240,20 @@ namespace LanOra.Forms
             this.btnDisconnect.Cursor    = System.Windows.Forms.Cursors.Hand;
             this.btnDisconnect.Click    += new System.EventHandler(this.btnDisconnect_Click);
 
+            // ---- btnRequestControl ----
+            this.btnRequestControl.BackColor               = AppTheme.SuccessGreen;
+            this.btnRequestControl.Enabled                 = false;
+            this.btnRequestControl.FlatStyle               = System.Windows.Forms.FlatStyle.Flat;
+            this.btnRequestControl.FlatAppearance.BorderSize = 0;
+            this.btnRequestControl.FlatAppearance.MouseOverBackColor = AppTheme.SuccessGreenDark;
+            this.btnRequestControl.Font      = new System.Drawing.Font(AppTheme.FontFamily, 10F, System.Drawing.FontStyle.Bold);
+            this.btnRequestControl.ForeColor = AppTheme.TextPrimary;
+            this.btnRequestControl.Location  = new System.Drawing.Point(12, 232);
+            this.btnRequestControl.Size      = new System.Drawing.Size(246, 40);
+            this.btnRequestControl.Text      = "Request Control";
+            this.btnRequestControl.Cursor    = System.Windows.Forms.Cursors.Hand;
+            this.btnRequestControl.Click    += new System.EventHandler(this.btnRequestControl_Click);
+
             // ----------------------------------------------------------------
             // picScreen – live stream area (fills remainder of form)
             // ----------------------------------------------------------------
@@ -262,12 +278,29 @@ namespace LanOra.Forms
             this.lblPerfOverlay.Visible   = false;
 
             // ----------------------------------------------------------------
+            // lblControlBadge – control state overlay (top-centre of stream)
+            // ----------------------------------------------------------------
+            this.lblControlBadge.AutoSize  = false;
+            this.lblControlBadge.Anchor    = System.Windows.Forms.AnchorStyles.Top
+                                           | System.Windows.Forms.AnchorStyles.Left
+                                           | System.Windows.Forms.AnchorStyles.Right;
+            this.lblControlBadge.BackColor = System.Drawing.Color.FromArgb(200, 0, 0, 0);
+            this.lblControlBadge.Font      = new System.Drawing.Font(AppTheme.FontFamily, 10F,
+                                               System.Drawing.FontStyle.Bold);
+            this.lblControlBadge.Location  = new System.Drawing.Point(270, 50);
+            this.lblControlBadge.Size      = new System.Drawing.Size(500, 28);
+            this.lblControlBadge.Text      = string.Empty;
+            this.lblControlBadge.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.lblControlBadge.Visible   = false;
+
+            // ----------------------------------------------------------------
             // ViewerForm
             // ----------------------------------------------------------------
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode       = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor           = AppTheme.Background;
             this.ClientSize          = new System.Drawing.Size(1060, 640);
+            this.Controls.Add(this.lblControlBadge);
             this.Controls.Add(this.lblPerfOverlay);
             this.Controls.Add(this.picScreen);
             this.Controls.Add(this.pnlLeft);
@@ -328,8 +361,10 @@ namespace LanOra.Forms
         private System.Windows.Forms.TextBox    txtPin6;
         private System.Windows.Forms.Button     btnConnect;
         private System.Windows.Forms.Button     btnDisconnect;
+        private System.Windows.Forms.Button     btnRequestControl;
         private System.Windows.Forms.PictureBox picScreen;
         private System.Windows.Forms.Label      lblPerfOverlay;
+        private System.Windows.Forms.Label      lblControlBadge;
         private System.Windows.Forms.Panel      pnlStatusBar;
         private System.Windows.Forms.Label      lblStatusDot;
         private System.Windows.Forms.Label      lblStatusBar;

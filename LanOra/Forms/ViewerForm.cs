@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Net;
 using System.Windows.Forms;
+using LanOra.Input;
 using LanOra.Networking;
 using LanOra.Theme;
 
@@ -11,6 +13,13 @@ namespace LanOra.Forms
     /// Viewer mode window. Automatically discovers hosts via UDP broadcast,
     /// shows them in a list, and connects using the 6-digit PIN entered by the
     /// user. Displays a live performance overlay (FPS / KB/s) while streaming.
+    ///
+    /// Secure remote control:
+    ///   – "Request Control" button sends a control request to the host.
+    ///   – While the request is pending a yellow badge is displayed.
+    ///   – If approved the badge turns green and input is captured from picScreen.
+    ///   – "Release Control" button reverts to view-only mode.
+    ///   – Control is revoked automatically on disconnect or host-side revoke.
     /// </summary>
     public partial class ViewerForm : Form
     {
@@ -23,6 +32,9 @@ namespace LanOra.Forms
 
         // Title-bar drag support
         private Point _dragOffset;
+
+        // Track control state locally (for UI decisions)
+        private bool _controlActive;
 
         public ViewerForm()
         {
@@ -72,12 +84,15 @@ namespace LanOra.Forms
 
         private void WireEvents()
         {
-            _client.FrameReceived  += bmp => SafeInvoke(() => DisplayFrame(bmp));
-            _client.StatusChanged  += msg => SafeInvoke(() => UpdateStatus(msg));
-            _client.Disconnected   +=       () => SafeInvoke(OnDisconnected);
-            _client.ErrorOccurred  += msg => SafeInvoke(() => ShowError(msg));
+            _client.FrameReceived   += bmp => SafeInvoke(() => DisplayFrame(bmp));
+            _client.StatusChanged   += msg => SafeInvoke(() => UpdateStatus(msg));
+            _client.Disconnected    +=       () => SafeInvoke(OnDisconnected);
+            _client.ErrorOccurred   += msg => SafeInvoke(() => ShowError(msg));
+            _client.ControlApproved +=       () => SafeInvoke(OnControlApproved);
+            _client.ControlDenied   +=       () => SafeInvoke(OnControlDenied);
+            _client.ControlRevoked  +=       () => SafeInvoke(OnControlRevoked);
 
-            _scanner.HostsUpdated  += () => SafeInvoke(RefreshHostList);
+            _scanner.HostsUpdated   += () => SafeInvoke(RefreshHostList);
         }
 
         /// <summary>
@@ -198,11 +213,12 @@ namespace LanOra.Forms
                 return;
             }
 
-            btnConnect.Enabled    = false;
-            btnDisconnect.Enabled = true;
-            lstHosts.Enabled      = false;
+            btnConnect.Enabled         = false;
+            btnDisconnect.Enabled      = true;
+            btnRequestControl.Enabled  = false;
+            lstHosts.Enabled           = false;
             SetPinBoxesEnabled(false);
-            btnRefresh.Enabled    = false;
+            btnRefresh.Enabled         = false;
 
             lblStatusDot.ForeColor = AppTheme.WarningYellow;
             lblStatusBar.Text      = "Viewer Mode: Connecting  |  " + AppTheme.Developer;
@@ -226,6 +242,225 @@ namespace LanOra.Forms
         }
 
         // ------------------------------------------------------------------ //
+        // Remote control – request / release                                 //
+        // ------------------------------------------------------------------ //
+
+        private void btnRequestControl_Click(object sender, EventArgs e)
+        {
+            if (_controlActive)
+            {
+                // Release control
+                _client.SendControlRelease();
+                SetControlUi(false, false);
+            }
+            else
+            {
+                // Request control
+                string viewerInfo = string.Format("{0}|{1}",
+                    Environment.MachineName,
+                    GetLocalIpAddress());
+                _client.SendControlRequest(viewerInfo);
+
+                // Show pending badge
+                ShowControlBadge("Control Request Pending\u2026", AppTheme.WarningYellow);
+                btnRequestControl.Enabled = false;
+            }
+        }
+
+        private void OnControlApproved()
+        {
+            _controlActive = true;
+            SetControlUi(true, true);
+
+            // Attach input event handlers to picScreen
+            picScreen.MouseMove  += PicScreen_MouseMove;
+            picScreen.MouseDown  += PicScreen_MouseDown;
+            picScreen.MouseUp    += PicScreen_MouseUp;
+            picScreen.MouseWheel += PicScreen_MouseWheel;
+            picScreen.KeyDown    += PicScreen_KeyDown;
+            picScreen.KeyUp      += PicScreen_KeyUp;
+            picScreen.Focus();
+        }
+
+        private void OnControlDenied()
+        {
+            _controlActive = false;
+            ShowControlBadge(string.Empty, Color.Transparent);
+            lblControlBadge.Visible  = false;
+            btnRequestControl.Text    = "Request Control";
+            btnRequestControl.Enabled = true;
+        }
+
+        private void OnControlRevoked()
+        {
+            SetControlUi(false, false);
+        }
+
+        private void SetControlUi(bool controlActive, bool showBadge)
+        {
+            _controlActive = controlActive;
+
+            if (controlActive)
+            {
+                btnRequestControl.Text      = "Release Control";
+                btnRequestControl.BackColor = AppTheme.ErrorRed;
+                btnRequestControl.FlatAppearance.MouseOverBackColor = AppTheme.ErrorRedDark;
+                btnRequestControl.Enabled   = true;
+                ShowControlBadge("\u25CF  CONTROL ACTIVE", AppTheme.SuccessGreen);
+            }
+            else
+            {
+                // Detach input handlers
+                picScreen.MouseMove  -= PicScreen_MouseMove;
+                picScreen.MouseDown  -= PicScreen_MouseDown;
+                picScreen.MouseUp    -= PicScreen_MouseUp;
+                picScreen.MouseWheel -= PicScreen_MouseWheel;
+                picScreen.KeyDown    -= PicScreen_KeyDown;
+                picScreen.KeyUp      -= PicScreen_KeyUp;
+
+                btnRequestControl.Text      = "Request Control";
+                btnRequestControl.BackColor = AppTheme.SuccessGreen;
+                btnRequestControl.FlatAppearance.MouseOverBackColor = AppTheme.SuccessGreenDark;
+                btnRequestControl.Enabled   = true;
+                lblControlBadge.Visible     = false;
+            }
+        }
+
+        private void ShowControlBadge(string text, Color foreColor)
+        {
+            lblControlBadge.Text      = text;
+            lblControlBadge.ForeColor = foreColor;
+            lblControlBadge.Visible   = !string.IsNullOrEmpty(text);
+        }
+
+        // ------------------------------------------------------------------ //
+        // Input capture – mouse                                               //
+        // ------------------------------------------------------------------ //
+
+        private void PicScreen_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_controlActive) return;
+            Rectangle img = GetImageBounds();
+            if (!img.Contains(e.Location)) return;
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType    = InputEventType.MouseMove,
+                X            = e.X - img.X,
+                Y            = e.Y - img.Y,
+                ViewerWidth  = img.Width,
+                ViewerHeight = img.Height
+            });
+        }
+
+        private void PicScreen_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (!_controlActive) return;
+            Rectangle img = GetImageBounds();
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType    = InputEventType.MouseDown,
+                X            = e.X - img.X,
+                Y            = e.Y - img.Y,
+                Button       = (int)e.Button,
+                ViewerWidth  = img.Width,
+                ViewerHeight = img.Height
+            });
+        }
+
+        private void PicScreen_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (!_controlActive) return;
+            Rectangle img = GetImageBounds();
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType    = InputEventType.MouseUp,
+                X            = e.X - img.X,
+                Y            = e.Y - img.Y,
+                Button       = (int)e.Button,
+                ViewerWidth  = img.Width,
+                ViewerHeight = img.Height
+            });
+        }
+
+        private void PicScreen_MouseWheel(object sender, MouseEventArgs e)
+        {
+            if (!_controlActive) return;
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType = InputEventType.MouseWheel,
+                Delta     = e.Delta
+            });
+        }
+
+        // ------------------------------------------------------------------ //
+        // Input capture – keyboard                                            //
+        // ------------------------------------------------------------------ //
+
+        private void PicScreen_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (!_controlActive) return;
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType = InputEventType.KeyDown,
+                KeyCode   = (int)e.KeyCode
+            });
+        }
+
+        private void PicScreen_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (!_controlActive) return;
+            e.Handled = true;
+
+            _client.SendInputPacket(new InputPacket
+            {
+                EventType = InputEventType.KeyUp,
+                KeyCode   = (int)e.KeyCode
+            });
+        }
+
+        // ------------------------------------------------------------------ //
+        // Image bounds helper (for coordinate scaling with SizeMode.Zoom)    //
+        // ------------------------------------------------------------------ //
+
+        /// <summary>
+        /// Returns the actual pixel rectangle of the displayed image within
+        /// <see cref="picScreen"/> when <see cref="PictureBoxSizeMode.Zoom"/>
+        /// is active (accounts for letter-boxing / pillar-boxing).
+        /// </summary>
+        private Rectangle GetImageBounds()
+        {
+            if (picScreen.Image == null)
+                return picScreen.ClientRectangle;
+
+            float imgAspect = (float)picScreen.Image.Width  / picScreen.Image.Height;
+            float picAspect = (float)picScreen.Width        / picScreen.Height;
+
+            int x, y, w, h;
+            if (imgAspect > picAspect)
+            {
+                w = picScreen.Width;
+                h = (int)(picScreen.Width / imgAspect);
+                x = 0;
+                y = (picScreen.Height - h) / 2;
+            }
+            else
+            {
+                h = picScreen.Height;
+                w = (int)(picScreen.Height * imgAspect);
+                x = (picScreen.Width - w) / 2;
+                y = 0;
+            }
+            return new Rectangle(x, y, Math.Max(1, w), Math.Max(1, h));
+        }
+
+        // ------------------------------------------------------------------ //
         // Client callback handlers (already on UI thread via SafeInvoke)     //
         // ------------------------------------------------------------------ //
 
@@ -241,18 +476,32 @@ namespace LanOra.Forms
         private void OnDisconnected()
         {
             _perfTimer.Stop();
-            btnConnect.Enabled    = true;
-            btnDisconnect.Enabled = false;
-            lstHosts.Enabled      = true;
+            _controlActive = false;
+
+            // Detach any input handlers that may be active
+            picScreen.MouseMove  -= PicScreen_MouseMove;
+            picScreen.MouseDown  -= PicScreen_MouseDown;
+            picScreen.MouseUp    -= PicScreen_MouseUp;
+            picScreen.MouseWheel -= PicScreen_MouseWheel;
+            picScreen.KeyDown    -= PicScreen_KeyDown;
+            picScreen.KeyUp      -= PicScreen_KeyUp;
+
+            btnConnect.Enabled         = true;
+            btnDisconnect.Enabled      = false;
+            btnRequestControl.Enabled  = false;
+            btnRequestControl.Text     = "Request Control";
+            btnRequestControl.BackColor = AppTheme.SuccessGreen;
+            lstHosts.Enabled           = true;
             SetPinBoxesEnabled(true);
-            btnRefresh.Enabled    = true;
+            btnRefresh.Enabled         = true;
 
-            lblStatusDot.ForeColor = AppTheme.ErrorRed;
-            lblStatusBar.Text      = "Viewer Mode: Discovery  |  " + AppTheme.Developer;
+            lblStatusDot.ForeColor   = AppTheme.ErrorRed;
+            lblStatusBar.Text        = "Viewer Mode: Discovery  |  " + AppTheme.Developer;
 
-            picScreen.Image        = null;
-            lblPerfOverlay.Text    = string.Empty;
-            lblPerfOverlay.Visible = false;
+            picScreen.Image          = null;
+            lblPerfOverlay.Text      = string.Empty;
+            lblPerfOverlay.Visible   = false;
+            lblControlBadge.Visible  = false;
 
             ClearPin();
 
@@ -282,8 +531,9 @@ namespace LanOra.Forms
         {
             if (message.StartsWith("Connected", StringComparison.OrdinalIgnoreCase))
             {
-                lblStatusDot.ForeColor = AppTheme.SuccessGreen;
-                lblStatusBar.Text      = "Viewer Mode: Connected  |  " + AppTheme.Developer;
+                lblStatusDot.ForeColor    = AppTheme.SuccessGreen;
+                lblStatusBar.Text         = "Viewer Mode: Connected  |  " + AppTheme.Developer;
+                btnRequestControl.Enabled = true;
             }
             else if (message.StartsWith("Connecting", StringComparison.OrdinalIgnoreCase))
             {
@@ -296,6 +546,29 @@ namespace LanOra.Forms
         private void ShowError(string message) =>
             MessageBox.Show(message, "Viewer Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
 
+        private static string GetLocalIpAddress()
+        {
+            try
+            {
+                using (var sock = new System.Net.Sockets.Socket(
+                    System.Net.Sockets.AddressFamily.InterNetwork,
+                    System.Net.Sockets.SocketType.Dgram,
+                    System.Net.Sockets.ProtocolType.Udp))
+                {
+                    sock.Connect("8.8.8.8", 65530);
+                    return ((System.Net.IPEndPoint)sock.LocalEndPoint).Address.ToString();
+                }
+            }
+            catch
+            {
+                foreach (System.Net.IPAddress addr in
+                         System.Net.Dns.GetHostAddresses(System.Net.Dns.GetHostName()))
+                    if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        return addr.ToString();
+                return "127.0.0.1";
+            }
+        }
+
         /// <summary>Thread-safe UI update helper.</summary>
         private void SafeInvoke(Action action)
         {
@@ -304,4 +577,3 @@ namespace LanOra.Forms
         }
     }
 }
-
