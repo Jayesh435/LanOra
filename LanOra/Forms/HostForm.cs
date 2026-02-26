@@ -1,8 +1,10 @@
 using System;
+using System.Drawing;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Forms;
 using LanOra.Networking;
+using LanOra.Theme;
 
 namespace LanOra.Forms
 {
@@ -17,14 +19,21 @@ namespace LanOra.Forms
         private readonly HostBeacon   _beacon = new HostBeacon();
         private readonly string       _pin;
 
+        // Title-bar drag
+        private Point _dragOffset;
+
+        // Count connected viewers
+        private int _viewerCount;
+
         public HostForm()
         {
             InitializeComponent();
+            DoubleBuffered = true;
             _pin = GeneratePin();
             WireEvents();
-            lblIpValue.Text  = GetLocalIpAddress();
-            lblPinValue.Text = _pin;
-            lblPort.Text     = "Port: " + ScreenServer.Port;
+            lblIpValue.Text = GetLocalIpAddress();
+            lblPort.Text    = "Port: " + ScreenServer.Port;
+            lblPinValue.Text = FormatPin(_pin);
         }
 
         // ------------------------------------------------------------------ //
@@ -33,7 +42,6 @@ namespace LanOra.Forms
 
         private static string GeneratePin()
         {
-            // Cryptographically random 6-digit PIN
             byte[] buf = new byte[4];
             using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
                 rng.GetBytes(buf);
@@ -41,17 +49,46 @@ namespace LanOra.Forms
             return (100000u + raw).ToString();
         }
 
+        /// <summary>Formats a 6-digit PIN as "XXX XXX".</summary>
+        private static string FormatPin(string pin)
+            => pin.Length == 6 ? pin.Substring(0, 3) + " " + pin.Substring(3) : pin;
+
         // ------------------------------------------------------------------ //
         // Event wiring                                                        //
         // ------------------------------------------------------------------ //
 
         private void WireEvents()
         {
-            _server.StatusChanged      += msg => SafeInvoke(() => UpdateStatus(msg));
+            _server.StatusChanged      += msg => SafeInvoke(() => UpdateStatusBar(msg));
             _server.ClientConnected    += ip  => SafeInvoke(() => OnClientConnected(ip));
             _server.ClientDisconnected +=       () => SafeInvoke(OnClientDisconnected);
             _server.ErrorOccurred      += msg => SafeInvoke(() => ShowError(msg));
         }
+
+        // ------------------------------------------------------------------ //
+        // Title-bar drag                                                      //
+        // ------------------------------------------------------------------ //
+
+        private void TitleBar_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+                _dragOffset = e.Location;
+        }
+
+        private void TitleBar_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+                Location = new Point(
+                    Location.X + e.X - _dragOffset.X,
+                    Location.Y + e.Y - _dragOffset.Y);
+        }
+
+        // ------------------------------------------------------------------ //
+        // Title-bar buttons                                                   //
+        // ------------------------------------------------------------------ //
+
+        private void btnClose_Click(object sender, EventArgs e)    => Close();
+        private void btnMinimize_Click(object sender, EventArgs e) => WindowState = FormWindowState.Minimized;
 
         // ------------------------------------------------------------------ //
         // UI event handlers                                                   //
@@ -64,8 +101,18 @@ namespace LanOra.Forms
                 _server.Pin = _pin;
                 _server.Start();
                 _beacon.Start(Environment.MachineName, lblIpValue.Text, ScreenServer.Port);
-                btnStart.Enabled = false;
-                btnStop.Enabled  = true;
+
+                btnStart.Visible = false;
+                btnStop.Visible  = true;
+
+                // Update status indicator
+                lblStatusDot.ForeColor = AppTheme.SuccessGreen;
+                lblIpValue2.Text = "Hosting\u2026";
+                lblViewerCount.Text    = "Connected Viewers: 0";
+                lblViewerCount.Visible = true;
+                _viewerCount = 0;
+
+                lblStatusBar.Text = "Host Mode: Hosting  |  " + AppTheme.Developer;
             }
             catch (Exception ex)
             {
@@ -77,9 +124,16 @@ namespace LanOra.Forms
         {
             _server.Stop();
             _beacon.Stop();
-            btnStart.Enabled = true;
-            btnStop.Enabled  = false;
-            UpdateStatus("Server stopped.");
+
+            btnStop.Visible  = false;
+            btnStart.Visible = true;
+
+            lblStatusDot.ForeColor = AppTheme.ErrorRed;
+            lblIpValue2.Text       = "Not Hosting";
+            lblViewerCount.Visible = false;
+            _viewerCount = 0;
+
+            lblStatusBar.Text = "Host Mode: Idle  |  " + AppTheme.Developer;
         }
 
         private void HostForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -94,21 +148,28 @@ namespace LanOra.Forms
 
         private void OnClientConnected(string ip)
         {
-            lblStatusDot.ForeColor = System.Drawing.Color.LimeGreen;
-            UpdateStatus("Connected: " + ip);
+            _viewerCount++;
+            lblStatusDot.ForeColor = AppTheme.SuccessGreen;
+            lblViewerCount.Text    = string.Format("Connected Viewers: {0}", _viewerCount);
         }
 
         private void OnClientDisconnected()
         {
-            lblStatusDot.ForeColor = System.Drawing.Color.Red;
-            UpdateStatus("Waiting for connection…");
+            if (_viewerCount > 0) _viewerCount--;
+            lblViewerCount.Text = string.Format("Connected Viewers: {0}", _viewerCount);
+            if (_viewerCount == 0)
+                lblStatusDot.ForeColor = AppTheme.SuccessGreen; // still hosting
         }
 
         // ------------------------------------------------------------------ //
         // Helpers                                                             //
         // ------------------------------------------------------------------ //
 
-        private void UpdateStatus(string message) => lblStatus.Text = "Status: " + message;
+        private void UpdateStatusBar(string message)
+        {
+            // Keep the branded status bar intact; nothing extra needed here.
+            _ = message;
+        }
 
         private void ShowError(string message) =>
             MessageBox.Show(message, "Host Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
