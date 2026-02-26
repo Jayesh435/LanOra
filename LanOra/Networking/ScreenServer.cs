@@ -1,8 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using LanOra.Monitoring;
 using LanOra.Utilities;
 
 namespace LanOra.Networking
@@ -10,6 +12,9 @@ namespace LanOra.Networking
     /// <summary>
     /// Listens for a single viewer connection, authenticates the client via PIN,
     /// and continuously streams compressed screen frames over TCP.
+    ///
+    /// Frame pacing is Stopwatch-based to avoid Thread.Sleep drift.
+    /// Frame skipping ensures the network is never over-queued.
     /// </summary>
     internal class ScreenServer
     {
@@ -26,8 +31,22 @@ namespace LanOra.Networking
         /// </summary>
         public string Pin { get; set; }
 
-        /// <summary>Milliseconds between captured frames (default 100 ms = 10 fps).</summary>
-        public int CaptureIntervalMs { get; set; } = 100;
+        /// <summary>
+        /// Target frames per second. Supported values: 5, 10, 15, 30.
+        /// Default: 10.
+        /// </summary>
+        public int TargetFps
+        {
+            get { return _targetFps; }
+            set { _targetFps = (value > 0) ? value : 10; }
+        }
+
+        /// <summary>
+        /// Resolution preset applied before JPEG compression.
+        /// Default: HD720p (1280 × 720).
+        /// </summary>
+        public ScreenCapture.Resolution ResolutionPreset { get; set; } =
+            ScreenCapture.Resolution.HD720p;
 
         // ------------------------------------------------------------------ //
         // Events (raised on worker threads – use SafeInvoke in the UI)       //
@@ -38,6 +57,11 @@ namespace LanOra.Networking
         public event Action         ClientDisconnected;
         public event Action<string> ErrorOccurred;
 
+        /// <summary>
+        /// Live performance statistics for the currently streaming session.
+        /// </summary>
+        public PerformanceTracker Performance { get; } = new PerformanceTracker();
+
         // ------------------------------------------------------------------ //
         // Private state                                                       //
         // ------------------------------------------------------------------ //
@@ -46,6 +70,8 @@ namespace LanOra.Networking
         private TcpClient     _currentClient;
         private Thread        _acceptThread;
         private volatile bool _running;
+        private volatile bool _clientBusy;   // frame-skip flag
+        private int           _targetFps = 10;
 
         // ------------------------------------------------------------------ //
         // Public API                                                          //
@@ -72,6 +98,7 @@ namespace LanOra.Networking
             _running = false;
             try { _listener?.Stop(); }       catch { /* ignore */ }
             try { _currentClient?.Close(); } catch { /* ignore */ }
+            Performance.Reset();
             RaiseStatus("Stopped.");
         }
 
@@ -108,6 +135,8 @@ namespace LanOra.Networking
         /// <summary>
         /// Authenticates the viewer via PIN, then streams frames until the
         /// connection drops or the server is stopped.
+        /// Uses Stopwatch-based frame pacing to avoid Thread.Sleep drift.
+        /// Skips a frame if the previous send is still in progress.
         /// </summary>
         private void HandleClient(TcpClient client)
         {
@@ -134,18 +163,46 @@ namespace LanOra.Networking
 
                     ClientConnected?.Invoke(clientAddress);
                     RaiseStatus("Connected: " + clientAddress);
+                    Performance.Reset();
 
-                    // --- Frame streaming loop ---
+                    // --- Stopwatch-based frame pacing ---
+                    Stopwatch sw             = Stopwatch.StartNew();
+                    long      ticksPerFrame  = Math.Max(1L, Stopwatch.Frequency / _targetFps);
+                    long      nextFrameTick  = sw.ElapsedTicks + ticksPerFrame;
+
                     while (_running)
                     {
-                        byte[] frame = ScreenCapture.CaptureScreen();
+                        // Wait until it is time for the next frame.
+                        // Thread.Sleep(1) yields the CPU while still waking up
+                        // frequently enough for typical frame intervals (33–200 ms).
+                        while (sw.ElapsedTicks < nextFrameTick)
+                            Thread.Sleep(1);
+
+                        // Frame-skip: if a send is still busy, skip this slot
+                        if (_clientBusy)
+                        {
+                            nextFrameTick += ticksPerFrame;
+                            continue;
+                        }
+
+                        byte[] frame = ScreenCapture.CaptureScreen(ResolutionPreset);
                         if (frame != null && frame.Length > 0)
                         {
-                            writer.Write(frame.Length); // 4-byte length prefix
-                            writer.Write(frame);        // JPEG bytes
-                            writer.Flush();
+                            _clientBusy = true;
+                            try
+                            {
+                                writer.Write(frame.Length); // 4-byte length prefix
+                                writer.Write(frame);        // JPEG bytes
+                                writer.Flush();
+                                Performance.RecordFrame(frame.Length);
+                            }
+                            finally
+                            {
+                                _clientBusy = false;
+                            }
                         }
-                        Thread.Sleep(CaptureIntervalMs);
+
+                        nextFrameTick += ticksPerFrame;
                     }
                 }
             }
@@ -162,6 +219,7 @@ namespace LanOra.Networking
             {
                 try { client.Close(); } catch { /* ignore */ }
                 _currentClient = null;
+                _clientBusy    = false;
                 ClientDisconnected?.Invoke();
                 if (_running)
                     RaiseStatus("Waiting for connection…");
@@ -172,3 +230,4 @@ namespace LanOra.Networking
         private void RaiseError(string message)   => ErrorOccurred?.Invoke(message);
     }
 }
+
