@@ -1,11 +1,95 @@
-# LanOra – LAN Screen Monitoring Software
+# LanOra – LAN Screen Sharing Software
 
-A professional, fully-offline LAN screen monitoring tool built in **C# / .NET Framework 4.5 / WinForms**.  
-Works on **Windows 7 and above**. No internet. No external libraries. Pure TCP over a local network.
+A professional, fully-offline LAN screen sharing tool built in **C# / .NET 8 / WinForms**.  
+Works on **Windows 10 and above**. No internet. No external libraries.
 
 ---
 
-## Architecture
+## Unified Application (LanOra)
+
+**LanOra** is a single executable that combines Host and Viewer in one application.
+
+### How it works
+
+1. **Launch `LanOra.exe`** on every machine – the same file on both the sharing PC and the viewing PC.
+2. On the **Host PC** – click **Host**, then **Start Hosting**.
+   - The app displays your LAN IP address and a randomly generated 6-digit PIN.
+   - It broadcasts its presence via UDP so viewers can discover it automatically.
+3. On the **Viewer PC** – click **Viewer**.
+   - Available hosts appear in the list automatically (UDP discovery).
+   - Select the host, enter its PIN, and click **Connect**.
+   - The live screen stream appears immediately.
+
+### Security
+
+- A new random 6-digit PIN is generated every time hosting starts.
+- The PIN is only checked during the TCP handshake; it is never included in UDP broadcasts.
+- Only a viewer that knows the current PIN can connect.
+
+### Architecture
+
+```
+                          LanOra.exe
+                               │
+                  ┌────────────▼────────────┐
+                  │     RoleSelectForm       │
+                  │    [Host]   [Viewer]     │
+                  └──────┬──────────┬───────┘
+                         │          │
+           ┌─────────────▼─┐    ┌───▼──────────────────┐
+           │   HostForm    │    │      ViewerForm        │
+           │               │    │                        │
+           │ IP: 192.168.x │    │  ┌──────────────────┐ │
+           │ PIN: 482 931  │◄───┤  │ Available Hosts  │ │  (UDP:5001)
+           │ [Start/Stop]  │    │  │ > DESKTOP-ABC    │ │
+           └───────────────┘    │  └──────────────────┘ │
+           ScreenServer         │  PIN: [______]         │
+           HostBeacon           │  [Connect]             │
+                  │             │  ┌──────────────────┐ │
+                  │ TCP:5000    │  │   Screen stream  │ │
+                  └────────────►│  └──────────────────┘ │
+                    JPEG frames │      ScreenClient      │
+                                │      HostScanner       │
+                                └────────────────────────┘
+```
+
+### Protocols
+
+| Protocol | Port | Purpose |
+|----------|------|---------|
+| UDP broadcast | 5001 | Host discovery – packet: `LANORA\|{name}\|{ip}\|{port}` |
+| TCP | 5000 | Authentication (PIN) + JPEG frame stream |
+
+### Folder Structure (LanOra project)
+
+```
+LanOra/
+├── LanOra.csproj                       – SDK-style (net8.0-windows)
+├── Program.cs                          – Entry point → RoleSelectForm
+├── Forms/
+│   ├── RoleSelectForm.cs/.Designer.cs  – Role picker
+│   ├── HostForm.cs/.Designer.cs        – Host mode
+│   └── ViewerForm.cs/.Designer.cs      – Viewer mode
+├── Networking/
+│   ├── HostDiscovery.cs                – HostBeacon + HostScanner (UDP)
+│   ├── ScreenServer.cs                 – TCP server, PIN auth, frame send
+│   └── ScreenClient.cs                 – TCP client, PIN auth, frame receive
+├── Utilities/
+│   └── ScreenCapture.cs                – Screen capture + JPEG compression
+└── Properties/AssemblyInfo.cs
+```
+
+### Build
+
+```
+dotnet build LanOra/LanOra.csproj
+```
+
+Output: `LanOra/bin/Debug/net8.0-windows/LanOra.exe`
+
+---
+
+## Legacy Projects (original separate apps)
 
 ```
 ┌─────────────────────────┐          TCP Port 5000         ┌─────────────────────────┐
@@ -28,7 +112,7 @@ Works on **Windows 7 and above**. No internet. No external libraries. Pure TCP o
 [4 bytes – Int32 frame length][N bytes – JPEG image data] … repeated
 ```
 
-### Authentication
+### Authentication (Legacy)
 
 On connect the viewer sends a **password string** first.  
 The server replies with a **bool** (`true` = authenticated, `false` = rejected).  
@@ -36,7 +120,7 @@ Default password: `lanora123` (defined in both `ScreenServer.cs` and `ScreenClie
 
 ---
 
-## Folder Structure
+## Legacy Folder Structure
 
 ```
 LANMonitor.sln
