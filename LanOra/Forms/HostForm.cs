@@ -35,7 +35,8 @@ namespace LanOra.Forms
         {
             // Cryptographically random 6-digit PIN
             byte[] buf = new byte[4];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(buf);
+            using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
+                rng.GetBytes(buf);
             uint raw = BitConverter.ToUInt32(buf, 0) % 900000u;
             return (100000u + raw).ToString();
         }

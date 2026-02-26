@@ -9,6 +9,7 @@ namespace LanOra.Forms
     /// <summary>
     /// Viewer mode window. Automatically discovers hosts via UDP broadcast,
     /// shows them in a list, and connects using the PIN entered by the user.
+    /// Displays a live performance overlay (FPS / KB/s) while streaming.
     /// </summary>
     public partial class ViewerForm : Form
     {
@@ -16,11 +17,15 @@ namespace LanOra.Forms
         private readonly HostScanner  _scanner = new HostScanner();
         private Bitmap _currentFrame;
 
+        // Performance overlay timer (updates the overlay label every second)
+        private readonly Timer _perfTimer = new Timer { Interval = 1000 };
+
         public ViewerForm()
         {
             InitializeComponent();
             WireEvents();
             _scanner.Start();
+            _perfTimer.Tick += (s, e) => UpdatePerfOverlay();
         }
 
         // ------------------------------------------------------------------ //
@@ -90,12 +95,14 @@ namespace LanOra.Forms
 
             _client.Pin = pin;
             _client.Connect(host.IpAddress);
+            _perfTimer.Start();
         }
 
         private void btnDisconnect_Click(object sender, EventArgs e) => _client.Disconnect();
 
         private void ViewerForm_FormClosing(object sender, FormClosingEventArgs e)
         {
+            _perfTimer.Stop();
             _client.Disconnect();
             _scanner.Stop();
 
@@ -119,6 +126,7 @@ namespace LanOra.Forms
 
         private void OnDisconnected()
         {
+            _perfTimer.Stop();
             btnConnect.Enabled    = true;
             btnDisconnect.Enabled = false;
             lstHosts.Enabled      = true;
@@ -126,10 +134,25 @@ namespace LanOra.Forms
             btnRefresh.Enabled    = true;
             lblStatusDot.ForeColor = Color.Red;
             picScreen.Image        = null;
+            lblPerfOverlay.Text    = string.Empty;
+            lblPerfOverlay.Visible = false;
 
             Bitmap old = _currentFrame;
             _currentFrame = null;
             old?.Dispose();
+        }
+
+        // ------------------------------------------------------------------ //
+        // Performance overlay                                                 //
+        // ------------------------------------------------------------------ //
+
+        private void UpdatePerfOverlay()
+        {
+            double fps = _client.Performance.Fps;
+            double kbs = _client.Performance.KbPerSecond;
+
+            lblPerfOverlay.Text    = string.Format("{0:F1} fps  {1:F0} KB/s", fps, kbs);
+            lblPerfOverlay.Visible = true;
         }
 
         // ------------------------------------------------------------------ //
@@ -155,3 +178,4 @@ namespace LanOra.Forms
         }
     }
 }
+
