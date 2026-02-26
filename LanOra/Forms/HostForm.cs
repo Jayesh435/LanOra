@@ -167,8 +167,8 @@ namespace LanOra.Forms
 
         private void UpdateStatusBar(string message)
         {
-            // Keep the branded status bar intact; nothing extra needed here.
-            _ = message;
+            // Status bar text is updated directly by btnStart/Stop_Click handlers;
+            // detailed server messages are informational only.
         }
 
         private void ShowError(string message) =>

@@ -62,9 +62,7 @@ namespace LanOra.Forms
 
         private void HostCard_MouseLeave(object sender, EventArgs e)
         {
-            // Ignore if still inside the card (child control raised the event)
-            if (pnlHostCard.ClientRectangle.Contains(pnlHostCard.PointToClient(Cursor.Position)))
-                return;
+            if (IsStillInsideCard(pnlHostCard)) return;
             _hostCardHovered = false;
             pnlHostCard.Invalidate();
         }
@@ -97,8 +95,7 @@ namespace LanOra.Forms
 
         private void ViewerCard_MouseLeave(object sender, EventArgs e)
         {
-            if (pnlViewerCard.ClientRectangle.Contains(pnlViewerCard.PointToClient(Cursor.Position)))
-                return;
+            if (IsStillInsideCard(pnlViewerCard)) return;
             _viewerCardHovered = false;
             pnlViewerCard.Invalidate();
         }
@@ -118,5 +115,17 @@ namespace LanOra.Forms
                 form.ShowDialog(this);
             Show();
         }
+
+        // ------------------------------------------------------------------ //
+        // Shared helpers                                                      //
+        // ------------------------------------------------------------------ //
+
+        /// <summary>
+        /// Returns true when the cursor is still physically inside
+        /// <paramref name="card"/> (child controls raise MouseLeave on the
+        /// parent, so this guards against false negatives).
+        /// </summary>
+        private static bool IsStillInsideCard(Panel card)
+            => card.ClientRectangle.Contains(card.PointToClient(Cursor.Position));
     }
 }

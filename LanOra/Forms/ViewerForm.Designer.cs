@@ -201,15 +201,15 @@ namespace LanOra.Forms
             this.pnlPinBoxes.Controls.Add(this.txtPin6);
 
             // Helper locals for compact PIN-box setup
-            int bw = 32, bh = 40, gap = 7, startX = 1;
+            int boxWidth = 32, boxHeight = 40, spacing = 7, initialX = 1;
             System.Drawing.Font pinFont = new System.Drawing.Font(AppTheme.FontFamily, 16F, System.Drawing.FontStyle.Bold);
 
-            SetupPinBox(this.txtPin1, startX + 0 * (bw + gap), 6, bw, bh, pinFont);
-            SetupPinBox(this.txtPin2, startX + 1 * (bw + gap), 6, bw, bh, pinFont);
-            SetupPinBox(this.txtPin3, startX + 2 * (bw + gap), 6, bw, bh, pinFont);
-            SetupPinBox(this.txtPin4, startX + 3 * (bw + gap) + 10, 6, bw, bh, pinFont);
-            SetupPinBox(this.txtPin5, startX + 4 * (bw + gap) + 10, 6, bw, bh, pinFont);
-            SetupPinBox(this.txtPin6, startX + 5 * (bw + gap) + 10, 6, bw, bh, pinFont);
+            SetupPinBox(this.txtPin1, initialX + 0 * (boxWidth + spacing), 6, boxWidth, boxHeight, pinFont);
+            SetupPinBox(this.txtPin2, initialX + 1 * (boxWidth + spacing), 6, boxWidth, boxHeight, pinFont);
+            SetupPinBox(this.txtPin3, initialX + 2 * (boxWidth + spacing), 6, boxWidth, boxHeight, pinFont);
+            SetupPinBox(this.txtPin4, initialX + 3 * (boxWidth + spacing) + 10, 6, boxWidth, boxHeight, pinFont);
+            SetupPinBox(this.txtPin5, initialX + 4 * (boxWidth + spacing) + 10, 6, boxWidth, boxHeight, pinFont);
+            SetupPinBox(this.txtPin6, initialX + 5 * (boxWidth + spacing) + 10, 6, boxWidth, boxHeight, pinFont);
 
             // ---- btnConnect ----
             this.btnConnect.BackColor               = AppTheme.AccentBlue;
