@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("LanOra")]
-[assembly: AssemblyDescription("LAN Screen Sharing – Host and Viewer in one application")]
+[assembly: AssemblyTitle("LanOra Updater")]
+[assembly: AssemblyDescription("Auto-updater for LanOra LAN Screen Sharing")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Jayesh Karemore")]
 [assembly: AssemblyProduct("LanOra")]
