@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 using LanOra.Utilities;
@@ -43,11 +44,21 @@ namespace LanOra
                 if (!UpdateChecker.IsUpdateAvailable(remote))
                     return;
 
-                // Marshal the dialog onto the UI thread.
-                Application.OpenForms[0]?.BeginInvoke((Action)(() =>
+                // Marshal the dialog onto the UI thread via the role-select
+                // form, which is the root form for the entire application.
+                // Use OfType to avoid IndexOutOfRangeException if the form
+                // collection changes before the check completes.
+                Forms.RoleSelectForm mainForm =
+                    Application.OpenForms.OfType<Forms.RoleSelectForm>()
+                               .FirstOrDefault();
+
+                if (mainForm == null || mainForm.IsDisposed)
+                    return;
+
+                mainForm.BeginInvoke((Action)(() =>
                 {
                     using (var dlg = new Forms.UpdateDialog(remote))
-                        dlg.ShowDialog();
+                        dlg.ShowDialog(mainForm);
                 }));
             }
             catch (Exception ex)

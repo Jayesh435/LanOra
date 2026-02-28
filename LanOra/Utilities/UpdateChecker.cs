@@ -239,14 +239,21 @@ namespace LanOra.Utilities
             {
                 using (WebClient wc = CreateWebClient())
                 {
-                    long totalBytes = 0L;
+                    // Track the last logged percentage to throttle log output
+                    // to one entry per 10 % increment.
+                    int lastLoggedPercent = -1;
 
                     wc.DownloadProgressChanged += (s, e) =>
                     {
-                        totalBytes = e.TotalBytesToReceive;
-                        UpdateLogger.Log(string.Format(
-                            "UpdateChecker: Download progress {0}% ({1}/{2} bytes)",
-                            e.ProgressPercentage, e.BytesReceived, e.TotalBytesToReceive));
+                        // Log only at 0%, 10%, 20%, … 100% boundaries.
+                        int bucket = (e.ProgressPercentage / 10) * 10;
+                        if (bucket > lastLoggedPercent)
+                        {
+                            lastLoggedPercent = bucket;
+                            UpdateLogger.Log(string.Format(
+                                "UpdateChecker: Download progress {0}% ({1}/{2} bytes)",
+                                e.ProgressPercentage, e.BytesReceived, e.TotalBytesToReceive));
+                        }
 
                         if (progress != null)
                             progress(e.ProgressPercentage, e.BytesReceived, e.TotalBytesToReceive);
