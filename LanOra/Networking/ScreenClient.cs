@@ -4,13 +4,21 @@ using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using LanOra.Monitoring;
+using LanOra.Utilities;
 
 namespace LanOra.Networking
 {
     /// <summary>
     /// Connects to a running <see cref="ScreenServer"/>, authenticates via PIN,
-    /// and continuously reads JPEG frames surfaced through <see cref="FrameReceived"/>.
-    /// Feeds <see cref="Performance"/> with per-frame byte counts for live stats.
+    /// continuously reads JPEG frames surfaced through <see cref="FrameReceived"/>,
+    /// and maintains the heartbeat protocol by replying to each server heartbeat
+    /// with a HeartbeatAck packet.
+    ///
+    /// Thread model:
+    ///   • ViewerReceive – single thread for the entire receive + ACK-send loop.
+    ///     NetworkStream is full-duplex; since ACK writes and frame reads never
+    ///     overlap (ACK is sent only after a heartbeat packet is fully read), the
+    ///     same thread can safely alternate reads and writes on the stream.
     /// </summary>
     internal class ScreenClient
     {
@@ -35,15 +43,20 @@ namespace LanOra.Networking
         public event Action         Disconnected;
         public event Action<string> ErrorOccurred;
 
-        /// <summary>
-        /// Live performance statistics for the current viewing session.
-        /// </summary>
+        /// <summary>Live performance statistics for the current viewing session.</summary>
         public PerformanceTracker Performance { get; } = new PerformanceTracker();
 
-        private const int MaxFrameSizeBytes = 4 * 1024 * 1024; // 4 MB sanity check
+        // Max frame size sanity guard (4 MB)
+        private const int MaxFrameSizeBytes = 4 * 1024 * 1024;
 
-        private TcpClient    _client;
-        private Thread       _receiveThread;
+        // Receive timeout: must be > HeartbeatIntervalMs (10 s) to avoid false timeouts.
+        // 25 s gives a comfortable margin; if nothing arrives in 25 s the server is gone.
+        private const int ReceiveTimeoutMs = 25000;
+
+        private TcpClient     _client;
+        private Thread        _receiveThread;
+        // Single flag is sufficient: no secondary session threads on the client side.
+        // Disconnect() sets this false and closes the socket atomically.
         private volatile bool _running;
 
         // ------------------------------------------------------------------ //
@@ -72,7 +85,7 @@ namespace LanOra.Networking
         }
 
         // ------------------------------------------------------------------ //
-        // Private helpers                                                     //
+        // Receive loop                                                        //
         // ------------------------------------------------------------------ //
 
         private void RunReceiveLoop(string serverIp)
@@ -81,12 +94,8 @@ namespace LanOra.Networking
             {
                 RaiseStatus("Connecting to " + serverIp + "…");
 
-                _client = new TcpClient
-                {
-                    NoDelay        = true,
-                    ReceiveTimeout = 10000,
-                    SendTimeout    = 5000
-                };
+                _client = new TcpClient();
+                ConfigureSocket(_client);
 
                 // Async connect with configurable timeout
                 IAsyncResult ar = _client.BeginConnect(serverIp, Port, null, null);
@@ -100,9 +109,14 @@ namespace LanOra.Networking
 
                 Performance.Reset();
 
-                using (BufferedStream buffered = new BufferedStream(_client.GetStream(), 65536))
-                using (BinaryWriter   writer   = new BinaryWriter(buffered))
-                using (BinaryReader   reader   = new BinaryReader(buffered))
+                // Use the NetworkStream directly for both read and write.
+                // This avoids a shared BufferedStream whose internal read-buffer
+                // would be invalidated when we switch from reading frames to writing
+                // ACK packets (BufferedStream.Write calls FlushRead → Seek, which
+                // throws on a non-seekable NetworkStream).
+                NetworkStream ns = _client.GetStream();
+                using (BinaryReader reader = new BinaryReader(ns, System.Text.Encoding.UTF8, leaveOpen: true))
+                using (BinaryWriter writer = new BinaryWriter(ns, System.Text.Encoding.UTF8, leaveOpen: true))
                 {
                     // --- PIN authentication ---
                     writer.Write(Pin ?? string.Empty);
@@ -115,23 +129,39 @@ namespace LanOra.Networking
                         return;
                     }
 
+                    Logger.Log("Connection established to " + serverIp);
                     RaiseStatus("Connected – receiving stream…");
 
-                    // --- Frame receive loop ---
+                    // --- Packet receive loop ---
                     while (_running)
                     {
-                        int length = reader.ReadInt32(); // 4-byte length prefix
+                        byte typeVal = reader.ReadByte();
+                        int  length  = reader.ReadInt32();
 
+                        if ((PacketType)typeVal == PacketType.Heartbeat)
+                        {
+                            // Consume any heartbeat payload (currently none)
+                            if (length > 0)
+                                ReadExactBytes(reader, length);
+
+                            // Reply with HeartbeatAck
+                            writer.Write((byte)PacketType.HeartbeatAck);
+                            writer.Write(0); // no payload
+                            writer.Flush();
+                            Logger.Log("Heartbeat ACK sent.");
+                            continue;
+                        }
+
+                        // PacketType.Frame
                         if (length <= 0 || length > MaxFrameSizeBytes)
                         {
-                            RaiseError("Invalid frame length received.");
+                            RaiseError("Invalid frame length received: " + length);
                             break;
                         }
 
                         byte[] frameData = ReadExactBytes(reader, length);
                         if (frameData == null) break;
 
-                        // Record performance stats
                         Performance.RecordFrame(frameData.Length);
 
                         Bitmap bmp = DecodeBitmap(frameData);
@@ -153,6 +183,10 @@ namespace LanOra.Networking
             {
                 RaiseError("Socket error: " + ex.Message);
             }
+            catch (ObjectDisposedException)
+            {
+                // Client was disposed (Disconnect called)
+            }
             catch (Exception ex)
             {
                 if (_running)
@@ -163,10 +197,15 @@ namespace LanOra.Networking
                 _running = false;
                 try { _client?.Close(); } catch { /* ignore */ }
                 Performance.Reset();
+                Logger.Log("Disconnected from server.");
                 Disconnected?.Invoke();
                 RaiseStatus("Disconnected.");
             }
         }
+
+        // ------------------------------------------------------------------ //
+        // Helpers                                                             //
+        // ------------------------------------------------------------------ //
 
         /// <summary>Reads exactly <paramref name="count"/> bytes; returns null if stream ends early.</summary>
         private static byte[] ReadExactBytes(BinaryReader reader, int count)
@@ -190,6 +229,36 @@ namespace LanOra.Networking
                     return new Bitmap(ms);
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Applies hardened TCP settings to the outgoing socket.
+        /// KeepAlive timing uses IOControl (SIO_KEEPALIVE_VALS), supported on
+        /// Windows 7 SP1 and later.
+        /// </summary>
+        private static void ConfigureSocket(TcpClient client)
+        {
+            client.NoDelay           = true;
+            client.ReceiveBufferSize = 1024 * 1024; // 1 MB
+            client.SendBufferSize    = 1024 * 1024; // 1 MB
+            client.SendTimeout       = 10000;
+            // Receive timeout acts as the heartbeat watchdog:
+            // if nothing arrives for 25 s (server heartbeat interval is 10 s),
+            // the read throws and the session is cleaned up.
+            client.ReceiveTimeout    = ReceiveTimeoutMs;
+
+            // Enable TCP KeepAlive at the socket level
+            client.Client.SetSocketOption(
+                SocketOptionLevel.Socket,
+                SocketOptionName.KeepAlive,
+                true);
+
+            // SIO_KEEPALIVE_VALS layout: [onoff: 4 B][idle time: 4 B][interval: 4 B] (ms)
+            byte[] ka = new byte[12];
+            BitConverter.GetBytes(1u).CopyTo(ka, 0);      // enable
+            BitConverter.GetBytes(30000u).CopyTo(ka, 4);  // idle before first probe: 30 s
+            BitConverter.GetBytes(10000u).CopyTo(ka, 8);  // retry interval: 10 s
+            client.Client.IOControl(IOControlCode.KeepAliveValues, ka, null);
         }
 
         private void RaiseStatus(string msg) => StatusChanged?.Invoke(msg);
