@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "downloadUrl": "https://yourdomain.com/lanora/LanOra_1.0.0.zip",
+  "sha256": "REPLACE_WITH_ACTUAL_SHA256_HASH_OF_ZIP_FILE",
+  "mandatory": false,
+  "channel": "stable",
+  "releaseNotes": "Initial release of LanOra."
+}
