@@ -5,6 +5,19 @@ Works on **Windows 10 and above**. No internet. No external libraries.
 
 ---
 
+## Download
+
+The easiest way to get **LanOra.exe** is to download the latest pre-built release directly from GitHub – no need to install Visual Studio or .NET SDK.
+
+1. Go to the [**Releases**](../../releases/latest) page (or click **Releases** on the right side of the repository page).
+2. Under **Assets**, download **`LanOra.exe`**.
+3. Run it – no installation required (self-contained, single file).
+
+> **Note:** Windows SmartScreen may warn about an unrecognised app the first time you run it.  
+> Click **More info → Run anyway** to proceed.
+
+---
+
 ## Unified Application (LanOra)
 
 **LanOra** is a single executable that combines Host and Viewer in one application.
